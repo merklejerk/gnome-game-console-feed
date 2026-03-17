@@ -63,7 +63,7 @@ This project uses `uv` for modern Python package management.
 
 2. **Run the application:**
    ```bash
-   uv run game-console-feed
+   uv run app
    ```
 
 3. **Run tests:**
