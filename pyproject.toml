@@ -1,0 +1,36 @@
+[project]
+name = "game-console-feed"
+version = "0.1.0"
+description = "Native GNOME Game Console Feed Utility"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "pygobject>=3.56.1",
+]
+
+[project.scripts]
+game-console-feed = "game_console_feed.main:main"
+app = "game_console_feed.main:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+    "ruff>=0.15.6",
+    "mypy>=1.19.1",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+ignore = []
+
+[tool.mypy]
+ignore_missing_imports = true
+check_untyped_defs = true
