@@ -1,5 +1,7 @@
 # Game Console Feed
 
+![screenshot](/screenshot.png)
+
 Game Console Feed is a native Linux utility designed to display a low-latency video and audio feed from a UVC-compliant capture card. It is built using GTK4, Libadwaita, and GStreamer to provide a "windowed" gaming experience that feels like a native OS component.
 
 This application is specifically optimized for playing game consoles (like the Nintendo Switch, PlayStation, or Xbox) in a desktop window without the overhead of complex streaming software like OBS.
