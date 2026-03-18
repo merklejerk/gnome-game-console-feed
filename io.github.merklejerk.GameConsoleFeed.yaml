@@ -1,6 +1,6 @@
 app-id: io.github.merklejerk.GameConsoleFeed
 runtime: org.gnome.Platform
-runtime-version: '47'
+runtime-version: '48'
 sdk: org.gnome.Sdk
 command: game-console-feed
 finish-args:
@@ -10,7 +10,7 @@ finish-args:
   - --device=all
   - --socket=pulseaudio
   - --filesystem=xdg-run/pipewire-0
-  - --filesystem=sysfs:ro
+  - --filesystem=/sys:ro
   - --own-name=io.github.merklejerk.GameConsoleFeed
   - --talk-name=org.freedesktop.Notifications
   - --talk-name=org.freedesktop.ScreenSaver

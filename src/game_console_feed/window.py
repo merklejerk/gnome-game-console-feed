@@ -26,7 +26,9 @@ class ConsoleWindow(Adw.ApplicationWindow):
         self.load_devices()
 
     def setup_ui(self):
+        self.toolbar_view = Adw.ToolbarView()
         self.header = Adw.HeaderBar()
+        self.toolbar_view.add_top_bar(self.header)
 
         self.device_model = Gtk.StringList()
         self.device_dropdown = Gtk.DropDown(model=self.device_model)
@@ -51,15 +53,12 @@ class ConsoleWindow(Adw.ApplicationWindow):
         # Adw.ToastOverlay is the main character for notifications
         self.toast_overlay = Adw.ToastOverlay()
         self.set_content(self.toast_overlay)
-
-        self.box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        self.toast_overlay.set_child(self.box)
-        self.box.append(self.header)
+        self.toast_overlay.set_child(self.toolbar_view)
 
         self.content_stack = Gtk.Stack()
         self.content_stack.set_vexpand(True)
         self.content_stack.set_hexpand(True)
-        self.box.append(self.content_stack)
+        self.toolbar_view.set_content(self.content_stack)
 
         self.status_page = Adw.StatusPage()
         self.status_page.set_title("No Signal")
