@@ -25,44 +25,41 @@ Game Console Feed is a "Just Works" solution. It automatically pairs video and a
 
 ### Flatpak (Recommended)
 
-Flatpak is the recommended way to run this application as it bundles all necessary GStreamer and hardware utility dependencies.
+Flatpak is the recommended way to run Game Console Feed. Pre-built bundles are available for every release.
 
-1. **Build and Install Locally**:
+1. **Download**: Grab the latest `.flatpak` bundle from the [Releases](https://github.com/merklejerk/gnome-game-console-feed/releases) page.
+2. **Install**:
    ```bash
-   flatpak-builder --user --install --force-clean build-dir io.github.merklejerk.GameConsoleFeed.yaml
+   flatpak install --user GameConsoleFeed.flatpak
    ```
-
-2. **Run**:
+3. **Run**:
    ```bash
    flatpak run io.github.merklejerk.GameConsoleFeed
    ```
 
-### Manual Installation
+### Manual Installation (via uv)
 
-To run natively, ensure your system has the following dependencies:
-- **Python**: 3.12+
-- **Libraries**: `PyGObject` (3.50.1+), `libadwaita-1`
-- **GStreamer**: `gstreamer1.0-plugins-good`
-- **Utilities**: `v4l-utils`, `alsa-utils`
+If you prefer to run from source, this project requires [uv](https://docs.astral.sh/uv/) for Python package management.
 
+**System Requirements**:
+You must have the following libraries installed on your host system:
+- `libadwaita-1`
+- `gstreamer1.0-plugins-good`
+- `v4l-utils`
+- `alsa-utils`
+
+**Setup & Run**:
 ```bash
-pip install .
-game-console-feed
+# Clone and sync environment
+git clone https://github.com/merklejerk/gnome-game-console-feed.git
+cd gnome-game-console-feed
+uv sync
+
+# Launch the app
+uv run app
 ```
 
 ## Development
-
-This project uses [uv](https://docs.astral.sh/uv/) for Python package management.
-
-### Setup
-```bash
-uv sync
-```
-
-### Running from source
-```bash
-uv run app
-```
 
 ### Tests & Linting
 ```bash
