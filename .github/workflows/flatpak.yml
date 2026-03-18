@@ -25,7 +25,7 @@ jobs:
           manifest-path: io.github.merklejerk.GameConsoleFeed.yaml
           cache-key: flatpak-builder-${{ github.sha }}
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: flatpak-bundle
           path: GameConsoleFeed.flatpak
