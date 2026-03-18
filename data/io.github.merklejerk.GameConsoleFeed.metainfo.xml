@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.merklejerk.GameConsoleFeed</id>
+  <name>Game Console Feed</name>
+  <summary>Native GNOME Game Console Feed Utility</summary>
+  <developer_name>merklejerk</developer_name>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <description>
+    <p>
+      Game Console Feed is a native Linux utility designed to display a low-latency video and audio feed from a UVC-compliant capture card. It is built using GTK4, Libadwaita, and GStreamer to provide a "windowed" gaming experience that feels like a native OS component.
+    </p>
+  </description>
+  <launchable type="desktop-id">io.github.merklejerk.GameConsoleFeed.desktop</launchable>
+  <screenshots>
+    <screenshot type="default">
+      <image>https://raw.githubusercontent.com/merklejerk/gnome-game-console-feed/main/screenshot.png</image>
+    </screenshot>
+  </screenshots>
+  <url type="homepage">https://github.com/merklejerk/gnome-game-console-feed</url>
+  <content_rating type="oars-1.1" />
+  <releases>
+    <release version="0.1.0" date="2026-03-17" />
+  </releases>
+</component>

@@ -27,7 +27,7 @@ dev = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "pygobject", specifier = ">=3.56.1" }]
+requires-dist = [{ name = "pygobject", specifier = ">=3.50.1" }]
 
 [package.metadata.requires-dev]
 dev = [

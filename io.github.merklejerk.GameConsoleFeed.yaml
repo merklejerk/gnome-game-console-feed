@@ -1,0 +1,64 @@
+app-id: io.github.merklejerk.GameConsoleFeed
+runtime: org.gnome.Platform
+runtime-version: '47'
+sdk: org.gnome.Sdk
+command: game-console-feed
+finish-args:
+  - --share=ipc
+  - --socket=fallback-x11
+  - --socket=wayland
+  - --device=all
+  - --socket=pulseaudio
+  - --filesystem=xdg-run/pipewire-0
+  - --filesystem=sysfs:ro
+  - --own-name=io.github.merklejerk.GameConsoleFeed
+  - --talk-name=org.freedesktop.Notifications
+  - --talk-name=org.freedesktop.ScreenSaver
+
+modules:
+  - name: v4l-utils
+    buildsystem: meson
+    config-opts:
+      - -Dgconv=disabled
+      - -Dsysconfdir=/app/etc
+      - -Dudevdir=/app/lib/udev
+      - -Dqvidcap=disabled
+      - -Dv4l2-compliance-libv4l=false
+    cleanup:
+      - /bin/v4l2-compliance
+      - /bin/v4l2-sysfs-path
+      - /bin/cx18-ctl
+      - /bin/ivtv-ctl
+      - /bin/decode_tm6000
+    sources:
+      - type: archive
+        url: https://linuxtv.org/downloads/v4l-utils/v4l-utils-1.28.1.tar.xz
+        sha256: 0fa075ce59b6618847af6ea191b6155565ccaa44de0504581ddfed795a328a82
+
+  - name: alsa-utils
+    buildsystem: autotools
+    config-opts:
+      - --disable-alsamixer
+      - --disable-alsaconf
+      - --disable-xmlto
+      - --disable-nls
+      - --disable-bat
+      - --with-udev-rules-dir=/app/lib/udev/rules.d
+    sources:
+      - type: archive
+        url: https://www.alsa-project.org/files/pub/utils/alsa-utils-1.2.12.tar.bz2
+        sha256: 98bc6677d0c0074006679051822324a0ab0879aea558a8f68b511780d30cd924
+
+  - name: game-console-feed
+    buildsystem: simple
+    build-options:
+      build-args:
+        - --share=network
+    build-commands:
+      - pip3 install --prefix=/app .
+      - install -D data/io.github.merklejerk.GameConsoleFeed.desktop /app/share/applications/io.github.merklejerk.GameConsoleFeed.desktop
+      - install -D data/io.github.merklejerk.GameConsoleFeed.metainfo.xml /app/share/metainfo/io.github.merklejerk.GameConsoleFeed.metainfo.xml
+      - install -D data/io.github.merklejerk.GameConsoleFeed.svg /app/share/icons/hicolor/scalable/apps/io.github.merklejerk.GameConsoleFeed.svg
+    sources:
+      - type: dir
+        path: .

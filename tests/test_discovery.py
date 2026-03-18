@@ -15,15 +15,11 @@ card 4: Video [C3A USB3 Video], device 0: USB Audio [USB Audio]
   Subdevice #0: subdevice #0
 """
     # Strict matching should pick card 0 for Anker
-    device = get_matching_alsa_device(
-        "/dev/video0", "Anker PowerConf C200: Anker Pow (usb...)"
-    )
+    device = get_matching_alsa_device("/dev/video0", "Anker PowerConf C200: Anker Pow (usb...)")
     assert device == "hw:0"
 
     # Strict matching should pick card 4 for C3A
-    device = get_matching_alsa_device(
-        "/dev/video2", "C3A USB3 Video: C3A USB3 Video (usb...)"
-    )
+    device = get_matching_alsa_device("/dev/video2", "C3A USB3 Video: C3A USB3 Video (usb...)")
     assert device == "hw:4"
 
 

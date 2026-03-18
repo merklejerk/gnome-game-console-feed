@@ -1,11 +1,13 @@
 import json
 import logging
-import os
 from pathlib import Path
+
+from gi.repository import GLib
 
 logger = logging.getLogger(__name__)
 
-CONFIG_DIR = Path(os.path.expanduser("~/.config/game-console-feed"))
+# Use GLib to get the proper config directory (XDG compliant and Flatpak friendly)
+CONFIG_DIR = Path(GLib.get_user_config_dir()) / "game-console-feed"
 CONFIG_FILE = CONFIG_DIR / "settings.json"
 
 

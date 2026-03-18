@@ -14,7 +14,7 @@ from game_console_feed.window import ConsoleWindow  # noqa: E402
 class ConsoleApp(Adw.Application):
     def __init__(self):
         super().__init__(
-            application_id="com.github.game_console_feed",
+            application_id="io.github.merklejerk.GameConsoleFeed",
             flags=Gio.ApplicationFlags.FLAGS_NONE,
         )
 

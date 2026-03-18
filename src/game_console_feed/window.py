@@ -30,7 +30,7 @@ class ConsoleWindow(Adw.ApplicationWindow):
 
         self.device_model = Gtk.StringList()
         self.device_dropdown = Gtk.DropDown(model=self.device_model)
-        self.device_dropdown.connect("notify::selected-item", self.on_device_selected)
+        # We'll connect this signal in load_devices after initial setup
         self.header.pack_start(self.device_dropdown)
 
         self.snap_btn = Gtk.Button(label="Snap AR")
@@ -48,7 +48,12 @@ class ConsoleWindow(Adw.ApplicationWindow):
         self.vol_scale.connect("value-changed", self.on_volume_changed)
         self.header.pack_end(self.vol_scale)
 
+        # Adw.ToastOverlay is the main character for notifications
+        self.toast_overlay = Adw.ToastOverlay()
+        self.set_content(self.toast_overlay)
+
         self.box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        self.toast_overlay.set_child(self.box)
         self.box.append(self.header)
 
         self.content_stack = Gtk.Stack()
@@ -68,8 +73,6 @@ class ConsoleWindow(Adw.ApplicationWindow):
 
         self.content_stack.add_named(self.video_box, "video")
         self.content_stack.set_visible_child_name("status")
-
-        self.set_content(self.box)
 
         keyctrl = Gtk.EventControllerKey.new()
         keyctrl.connect("key-pressed", self.on_key_pressed)
@@ -117,23 +120,38 @@ class ConsoleWindow(Adw.ApplicationWindow):
             self.status_page.set_description("No video devices found.")
             return
 
-        last_device = self.config.get("last_device_path")
+        last_device_id = self.config.get("last_device_id")
         selected_idx = 0
+        found_last = False
+
         for i, dev in enumerate(self.devices):
-            if dev["path"] == last_device:
+            if dev["id"] == last_device_id:
                 selected_idx = i
+                found_last = True
                 break
 
-        # setting the selected index will fire on_device_selected
-        # which starts the stream
+        # Set the selection without firing signals yet
         self.device_dropdown.set_selected(selected_idx)
+
+        # Connect signal ONLY for future user-driven changes
+        self.device_dropdown.connect("notify::selected-item", self.on_device_selected)
+
+        # Manually start the stream for the initial selection
+        initial_device = self.devices[selected_idx]
+        self.start_stream(initial_device)
+
+        # Gracefully handle if the saved device is gone
+        if not found_last and last_device_id:
+            msg = f"Last used device not found. Defaulting to {initial_device['name']}."
+            toast = Adw.Toast.new(msg)
+            self.toast_overlay.add_toast(toast)
 
     def on_device_selected(self, dropdown, pspec):
         idx = dropdown.get_selected()
         if idx == Gtk.INVALID_LIST_POSITION or not self.devices:
             return
         dev = self.devices[idx]
-        self.config["last_device_path"] = dev["path"]
+        self.config["last_device_id"] = dev["id"]
         save_config(self.config)
         self.start_stream(dev)
 
@@ -157,8 +175,10 @@ class ConsoleWindow(Adw.ApplicationWindow):
         current_width = self.get_width()
         current_height = self.get_height()
 
-        if current_width <= 0:
-            current_width = 1280
+        # If we haven't been measured yet, wait for the next tick.
+        # This prevents redundant resizes on startup where get_width() might return 0.
+        if current_width <= 0 or current_height <= 0:
+            return
 
         aspect_ratio = 16 / 9
         if self.picture:
@@ -181,18 +201,21 @@ class ConsoleWindow(Adw.ApplicationWindow):
 
         target_height = video_height + header_height
 
-        # If the window is already perfectly snapped (within 1 pixel tolerance),
+        # If the window is already perfectly snapped (within 2 pixel tolerance),
         # do not trigger the destructive hide/present cycle.
-        if abs(current_height - target_height) <= 1:
+        if abs(current_height - target_height) <= 2:
             return
 
         # Wayland compositors notoriously ignore set_default_size and size requests
         # once the user has manually dragged a window. The only guaranteed way to
         # force a shrink/resize is to hide the window, set the new default size,
         # and present it again.
-        # However, hiding and presenting in the exact same event loop tick can
-        # cause Wayland Protocol Error 71 because the compositor receives conflicting
-        # state changes. We use idle_add to delay the present() to the next tick.
+        # However, we ONLY do this for manual clicks (btn is not None).
+        # For auto-snaps on startup, a simple set_default_size is cleaner.
+        if btn is None:
+            self.set_default_size(current_width, target_height)
+            return
+
         self.hide()
 
         def _re_present():

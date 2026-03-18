@@ -1,6 +1,4 @@
-import os
 import json
-from pathlib import Path
 from unittest import mock
 
 import pytest
@@ -18,13 +16,14 @@ def mock_config_dir(tmp_path):
 def test_load_config_empty(mock_config_dir):
     assert load_config() == {}
 
+
 def test_save_and_load_config(mock_config_dir):
     config = {"last_device_path": "/dev/video0", "audio_muted": True}
     save_config(config)
-    
+
     loaded = load_config()
     assert loaded == config
-    
+
     # Ensure it was saved to the correct file
     with open(mock_config_dir / "settings.json", "r") as f:
         data = json.load(f)

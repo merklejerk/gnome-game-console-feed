@@ -7,7 +7,7 @@ from typing import Dict, List
 def get_video_devices() -> List[Dict[str, str]]:
     devices = []
     try:
-        # Try v4l2-ctl first for better names
+        # Try v4l2-ctl first for better names and unique bus info
         output = subprocess.check_output(["v4l2-ctl", "--list-devices"], text=True)
         current_name = None
         for line in output.splitlines():
@@ -16,7 +16,28 @@ def get_video_devices() -> List[Dict[str, str]]:
                 continue
             if line.startswith("/dev/video"):
                 if current_name:
-                    devices.append({"name": current_name, "path": line})
+                    path = line
+                    # Get more detailed info including bus_info for stable ID
+                    bus_info = ""
+                    try:
+                        info_out = subprocess.check_output(
+                            ["v4l2-ctl", "--device", path, "--info"], text=True
+                        )
+                        for info_line in info_out.splitlines():
+                            if "Bus info" in info_line:
+                                bus_info = info_line.split(":", 1)[1].strip()
+                                break
+                    except Exception:
+                        pass
+
+                    devices.append(
+                        {
+                            "name": current_name,
+                            "path": path,
+                            "bus_info": bus_info,
+                            "id": bus_info or path,  # Prefer bus_info for persistence
+                        }
+                    )
                     current_name = None
             else:
                 current_name = line.rstrip(":")
@@ -34,7 +55,7 @@ def get_video_devices() -> List[Dict[str, str]]:
                             name = f.read().strip()
                 except Exception:
                     pass
-                devices.append({"name": name, "path": path})
+                devices.append({"name": name, "path": path, "bus_info": "", "id": path})
 
     return devices
 
