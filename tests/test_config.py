@@ -1,4 +1,3 @@
-import json
 from unittest import mock
 
 import pytest
@@ -18,13 +17,25 @@ def test_load_config_empty(mock_config_dir):
 
 
 def test_save_and_load_config(mock_config_dir):
-    config = {"last_device_path": "/dev/video0", "audio_muted": True}
+    config = {"last_device_id": "/dev/video0", "audio_muted": True}
     save_config(config)
+    assert load_config() == config
 
-    loaded = load_config()
-    assert loaded == config
+    save_config({"audio_muted": False})
+    assert load_config() == {"audio_muted": False}
 
-    # Ensure it was saved to the correct file
-    with open(mock_config_dir / "settings.json", "r") as f:
-        data = json.load(f)
-        assert data == config
+
+def test_load_config_requires_an_object(mock_config_dir):
+    (mock_config_dir / "settings.json").write_text("[]", encoding="utf-8")
+    assert load_config() == {}
+
+
+def test_save_config_updates_a_linked_settings_file(mock_config_dir):
+    settings = mock_config_dir / "settings.json"
+    target = mock_config_dir / "linked.json"
+    settings.symlink_to(target)
+
+    save_config({"audio_muted": False})
+
+    assert settings.is_symlink()
+    assert load_config() == {"audio_muted": False}

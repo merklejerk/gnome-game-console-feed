@@ -3,8 +3,9 @@ from unittest.mock import patch
 from game_console_feed.discovery import get_matching_alsa_device
 
 
+@patch("game_console_feed.discovery.get_sysfs_parent", return_value="")
 @patch("subprocess.check_output")
-def test_get_matching_alsa_device_found_strict(mock_check_output):
+def test_get_matching_alsa_device_matches_name_without_topology(mock_check_output, _get_parent):
     mock_check_output.return_value = """
 **** List of CAPTURE Hardware Devices ****
 card 0: C200 [Anker PowerConf C200], device 0: USB Audio [USB Audio]

@@ -18,6 +18,9 @@ Game Console Feed is a "Just Works" solution. It automatically pairs video and a
 - **Automatic Device Pairing**: Discovers capture cards and robustly pairs them with their corresponding ALSA audio nodes using hardware topology.
 - **Native GNOME Experience**: Built with GTK4 and Libadwaita for a seamless modern aesthetic.
 - **Aspect Ratio Snapping**: A dedicated control to perfectly size the window to the console's output (e.g., 16:9), handling Wayland resizing quirks automatically.
+- **Fullscreen** via the header button or `F11`. Press `Esc` or `F11` to return to the window.
+- **Capture volume** from 0% to 200% using the slider or the `+` and `−` shortcuts.
+- **Video background** in Settings lets you follow the window theme, pick a solid color, or tune the brightness and spread of a live glow around the video.
 - **Low Latency**: Utilizes a streamlined GStreamer pipeline to ensure minimal input lag.
 - **Persistence**: Remembers your last selected device (via unique hardware IDs), volume levels, and mute status across sessions.
 
@@ -67,7 +70,7 @@ uv run app
 uv run pytest
 
 # Check types
-uv run mypy .
+uv run mypy src tests
 
 # Lint and Format
 uv run ruff check . --fix
@@ -76,9 +79,11 @@ uv run ruff format .
 
 ## How it works
 
-Game Console Feed uses **GStreamer** to construct an efficient media pipeline:
-- **Video**: `v4l2src` -> `videoconvert` -> `gtk4paintablesink`
-- **Audio**: `alsasrc` -> `audioconvert` -> `audioresample` -> `autoaudiosink`
+Game Console Feed uses **GStreamer** for capture and playback.
+
+- **Video** runs through `v4l2src`, `videoconvert`, and `gtk4paintablesink`.
+- **Audio** runs through `alsasrc`, `audioconvert`, `volume`, `audioresample`, and `autoaudiosink`.
+- **Edge Glow** samples the display sink in a separate pipeline, so the sampler's resolution does not affect capture negotiation.
 
 To solve the issue of shifting device paths (e.g., `/dev/video0` changing to `/dev/video2`), the application performs a hardware topology scan in `/sys` to pair video devices with their associated physical audio cards.
 

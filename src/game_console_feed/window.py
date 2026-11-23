@@ -1,12 +1,39 @@
+from dataclasses import replace
+
 import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, GLib, Gtk  # noqa: E402
 
+from game_console_feed.background import (  # noqa: E402
+    MAX_GLOW_PERCENT,
+    BackgroundMode,
+    BackgroundSettings,
+    GlowSettings,
+    VideoBackground,
+)
 from game_console_feed.config import load_config, save_config  # noqa: E402
 from game_console_feed.discovery import get_matching_alsa_device, get_video_devices  # noqa: E402
 from game_console_feed.pipeline import PipelineManager  # noqa: E402
+
+UNITY_VOLUME = 1.0  # GStreamer uses a gain factor, with 1.0 meaning 100%.
+MAX_VOLUME = 2.0
+VOLUME_STEP = 0.05
+
+
+def _percent_slider_row(title: str, value: int) -> tuple[Adw.ActionRow, Gtk.Scale]:
+    row = Adw.ActionRow(title=title)
+    slider = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, MAX_GLOW_PERCENT, 1)
+    slider.set_size_request(160, -1)
+    slider.set_valign(Gtk.Align.CENTER)
+    slider.set_draw_value(True)
+    slider.set_value_pos(Gtk.PositionType.RIGHT)
+    slider.set_format_value_func(lambda _scale, percent: f"{percent:.0f}%")
+    slider.set_value(value)
+    slider.update_property([Gtk.AccessibleProperty.LABEL], [title])
+    row.add_suffix(slider)
+    return row, slider
 
 
 class ConsoleWindow(Adw.ApplicationWindow):
@@ -16,11 +43,9 @@ class ConsoleWindow(Adw.ApplicationWindow):
         self.set_default_size(1280, 720)
 
         self.config = load_config()
-        self.pipeline_manager = PipelineManager(on_error_callback=self.on_pipeline_error)
+        self.pipeline_manager = PipelineManager(on_error=self.show_error)
         self.audio_muted = self.config.get("audio_muted", False)
-        self.volume = self.config.get("volume", 1.0)
-        self.aspect_locked = self.config.get("aspect_locked", True)
-        self.picture = None
+        self.background_settings = BackgroundSettings.from_config(self.config)
 
         self.setup_ui()
         self.load_devices()
@@ -39,14 +64,34 @@ class ConsoleWindow(Adw.ApplicationWindow):
         self.snap_btn.connect("clicked", self.on_snap_clicked)
         self.header.pack_start(self.snap_btn)
 
+        fullscreen_btn = Gtk.Button.new_from_icon_name("view-fullscreen-symbolic")
+        fullscreen_btn.set_tooltip_text("Enter Fullscreen (F11)")
+        fullscreen_btn.update_property([Gtk.AccessibleProperty.LABEL], ["Enter Fullscreen"])
+        fullscreen_btn.connect("clicked", lambda _button: self.toggle_fullscreen())
+        self.header.pack_end(fullscreen_btn)
+
+        settings_btn = Gtk.Button.new_from_icon_name("preferences-system-symbolic")
+        settings_btn.set_tooltip_text("Settings")
+        settings_btn.update_property([Gtk.AccessibleProperty.LABEL], ["Settings"])
+        settings_btn.connect("clicked", self.show_preferences)
+        self.header.pack_end(settings_btn)
+
         self.mute_btn = Gtk.ToggleButton(label="Mute" if not self.audio_muted else "Unmute")
         self.mute_btn.set_active(self.audio_muted)
         self.mute_btn.connect("toggled", self.on_mute_toggled)
         self.header.pack_end(self.mute_btn)
 
-        self.vol_scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0.0, 1.0, 0.05)
-        self.vol_scale.set_value(self.volume)
-        self.vol_scale.set_size_request(100, -1)
+        self.vol_scale = Gtk.Scale.new_with_range(
+            Gtk.Orientation.HORIZONTAL, 0.0, MAX_VOLUME, VOLUME_STEP
+        )
+        self.vol_scale.set_value(self.config.get("volume", UNITY_VOLUME))
+        self.vol_scale.set_size_request(140, -1)
+        self.vol_scale.set_digits(2)
+        self.vol_scale.set_draw_value(True)
+        self.vol_scale.set_value_pos(Gtk.PositionType.RIGHT)
+        self.vol_scale.set_format_value_func(lambda _scale, value: f"{value:.0%}")
+        self.vol_scale.add_mark(UNITY_VOLUME, Gtk.PositionType.BOTTOM, None)
+        self.vol_scale.update_property([Gtk.AccessibleProperty.LABEL], ["Volume"])
         self.vol_scale.connect("value-changed", self.on_volume_changed)
         self.header.pack_end(self.vol_scale)
 
@@ -66,27 +111,137 @@ class ConsoleWindow(Adw.ApplicationWindow):
         self.status_page.set_icon_name("camera-web-symbolic")
         self.content_stack.add_named(self.status_page, "status")
 
-        self.video_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        self.video_box.set_hexpand(True)
-        self.video_box.set_vexpand(True)
+        self.picture = Gtk.Picture(can_shrink=True, content_fit=Gtk.ContentFit.CONTAIN)
+        self.video_background = VideoBackground(self.background_settings, self.video_aspect_ratio)
+        video = Gtk.Overlay(hexpand=True, vexpand=True)
+        video.set_child(self.video_background)
+        video.add_overlay(self.picture)
+        video.set_measure_overlay(self.picture, True)
 
-        self.content_stack.add_named(self.video_box, "video")
+        self.content_stack.add_named(video, "video")
         self.content_stack.set_visible_child_name("status")
 
         keyctrl = Gtk.EventControllerKey.new()
         keyctrl.connect("key-pressed", self.on_key_pressed)
         self.add_controller(keyctrl)
 
+        self.connect("notify::fullscreened", self.on_fullscreen_changed)
         self.connect("close-request", self.on_close_request)
 
+    def show_preferences(self, _button):
+        dialog = Adw.PreferencesDialog(title="Settings", search_enabled=False)
+        page = Adw.PreferencesPage()
+        group = Adw.PreferencesGroup(title="Video Background")
+        dialog.add(page)
+        page.add(group)
+
+        choices = {
+            BackgroundMode.THEME: "Follow Theme",
+            BackgroundMode.SOLID: "Solid Color",
+            BackgroundMode.GLOW: "Edge Glow",
+        }
+        modes = tuple(choices)
+        mode_row = Adw.ComboRow(title="Background")
+        mode_row.set_model(Gtk.StringList.new(list(choices.values())))
+        mode_row.set_selected(modes.index(self.background_settings.mode))
+        group.add(mode_row)
+
+        color_row = Adw.ActionRow(title="Fill Color")
+        color_button = Gtk.ColorDialogButton.new(Gtk.ColorDialog(with_alpha=False))
+        color_button.set_valign(Gtk.Align.CENTER)
+        color_button.update_property([Gtk.AccessibleProperty.LABEL], ["Fill Color"])
+        color_button.set_rgba(self.background_settings.rgba())
+        color_row.add_suffix(color_button)
+        color_row.set_activatable_widget(color_button)
+        group.add(color_row)
+
+        brightness_row, brightness = _percent_slider_row(
+            "Brightness", self.background_settings.glow.brightness
+        )
+        spread_row, spread = _percent_slider_row("Spread", self.background_settings.glow.spread)
+        group.add(brightness_row)
+        group.add(spread_row)
+
+        def update_visible_rows(mode: BackgroundMode) -> None:
+            color_row.set_visible(mode is BackgroundMode.SOLID)
+            brightness_row.set_visible(mode is BackgroundMode.GLOW)
+            spread_row.set_visible(mode is BackgroundMode.GLOW)
+
+        def change_mode(row, _property):
+            mode = modes[row.get_selected()]
+            update_visible_rows(mode)
+            self.set_background_settings(replace(self.background_settings, mode=mode))
+
+        def change_color(button, _property):
+            rgba = button.get_rgba()
+            color = "#" + "".join(
+                f"{round(channel * 255):02x}" for channel in (rgba.red, rgba.green, rgba.blue)
+            )
+            self.set_background_settings(replace(self.background_settings, color=color))
+
+        def change_glow(_slider):
+            glow = GlowSettings(
+                brightness=round(brightness.get_value()),
+                spread=round(spread.get_value()),
+            )
+            self.set_background_settings(replace(self.background_settings, glow=glow))
+
+        update_visible_rows(self.background_settings.mode)
+        mode_row.connect("notify::selected", change_mode)
+        color_button.connect("notify::rgba", change_color)
+        brightness.connect("value-changed", change_glow)
+        spread.connect("value-changed", change_glow)
+        dialog.present(self)
+
+    def set_background_settings(self, settings: BackgroundSettings) -> None:
+        mode_changed = self.background_settings.mode is not settings.mode
+        self.background_settings = settings
+        self.video_background.apply_settings(settings)
+        if mode_changed:
+            self.update_background_sampling()
+        settings.update_config(self.config)
+        save_config(self.config)
+
+    def update_background_sampling(self) -> None:
+        if (
+            self.background_settings.mode is BackgroundMode.GLOW
+            and self.picture.get_paintable() is not None
+        ):
+            self.pipeline_manager.start_background_sampling(
+                self.video_background.push_frame, self.show_glow_unavailable
+            )
+        else:
+            self.pipeline_manager.stop_background_sampling()
+
+    def show_glow_unavailable(self) -> None:
+        self.video_background.clear_frame()
+        toast = Adw.Toast.new("Edge Glow is unavailable for this feed.")
+        dialog = self.get_visible_dialog()
+        if isinstance(dialog, Adw.PreferencesDialog):
+            dialog.add_toast(toast)
+        else:
+            self.toast_overlay.add_toast(toast)
+
+    def toggle_fullscreen(self):
+        if self.is_fullscreen():
+            self.unfullscreen()
+        else:
+            self.fullscreen()
+
+    def on_fullscreen_changed(self, _window, _property):
+        self.toolbar_view.set_reveal_top_bars(not self.is_fullscreen())
+
     def on_key_pressed(self, controller, keyval, keycode, state):
+        if self.get_visible_dialog() is not None:
+            return False
+
         is_ctrl = bool(state & Gdk.ModifierType.CONTROL_MASK)
 
         if keyval == Gdk.KEY_F11:
-            if self.is_fullscreen():
-                self.unfullscreen()
-            else:
-                self.fullscreen()
+            self.toggle_fullscreen()
+            return True
+        elif keyval == Gdk.KEY_Escape and self.is_fullscreen():
+            self.unfullscreen()
             return True
         elif is_ctrl and keyval in (Gdk.KEY_w, Gdk.KEY_W, Gdk.KEY_q, Gdk.KEY_Q):
             self.close()
@@ -99,12 +254,10 @@ class ConsoleWindow(Adw.ApplicationWindow):
                 self.on_snap_clicked(None)
                 return True
             elif keyval in (Gdk.KEY_plus, Gdk.KEY_equal):
-                new_vol = min(1.0, self.volume + 0.05)
-                self.vol_scale.set_value(new_vol)
+                self.vol_scale.set_value(self.vol_scale.get_value() + VOLUME_STEP)
                 return True
             elif keyval in (Gdk.KEY_minus, Gdk.KEY_underscore):
-                new_vol = max(0.0, self.volume - 0.05)
-                self.vol_scale.set_value(new_vol)
+                self.vol_scale.set_value(self.vol_scale.get_value() - VOLUME_STEP)
                 return True
 
         return False
@@ -162,10 +315,18 @@ class ConsoleWindow(Adw.ApplicationWindow):
         self.pipeline_manager.set_mute(self.audio_muted)
 
     def on_volume_changed(self, scale):
-        self.volume = scale.get_value()
-        self.pipeline_manager.set_volume(self.volume)
-        self.config["volume"] = self.volume
+        volume = scale.get_value()
+        self.pipeline_manager.set_volume(volume)
+        self.config["volume"] = volume
         save_config(self.config)
+
+    def video_aspect_ratio(self) -> float:
+        paintable = self.picture.get_paintable()
+        if paintable:
+            aspect = paintable.get_intrinsic_aspect_ratio()
+            if aspect > 0:
+                return aspect
+        return 16 / 9
 
     def on_snap_clicked(self, btn):
         if self.is_fullscreen() or self.is_maximized():
@@ -179,17 +340,8 @@ class ConsoleWindow(Adw.ApplicationWindow):
         if current_width <= 0 or current_height <= 0:
             return
 
-        aspect_ratio = 16 / 9
-        if self.picture:
-            paintable = self.picture.get_paintable()
-            if paintable:
-                w = paintable.get_intrinsic_width()
-                h = paintable.get_intrinsic_height()
-                if w > 0 and h > 0:
-                    aspect_ratio = w / h
-
         # Calculate the height needed for the video area
-        video_height = int(current_width / aspect_ratio)
+        video_height = int(current_width / self.video_aspect_ratio())
 
         # In GTK4, the window size includes the HeaderBar.
         # We need to measure the HeaderBar's natural height and add it.
@@ -225,52 +377,39 @@ class ConsoleWindow(Adw.ApplicationWindow):
         GLib.idle_add(_re_present)
 
     def start_stream(self, device_info):
-        self.pipeline_manager.stop()
-        self.picture = None
+        self.clear_video()
 
         video_path = device_info["path"]
         audio_path = get_matching_alsa_device(video_path, device_info["name"])
 
-        success = self.pipeline_manager.build_pipeline(video_path, audio_path, self.audio_muted)
-        if success:
-            paintable = self.pipeline_manager.get_paintable()
-            if paintable:
-                while self.video_box.get_first_child():
-                    self.video_box.remove(self.video_box.get_first_child())
+        paintable = self.pipeline_manager.start(
+            video_path, audio_path, muted=self.audio_muted, volume=self.vol_scale.get_value()
+        )
+        if paintable is None:
+            return
 
-                self.picture = Gtk.Picture.new_for_paintable(paintable)
-                self.picture.set_can_shrink(True)
-                self.picture.set_hexpand(True)
-                self.picture.set_vexpand(True)
-                self.picture.set_keep_aspect_ratio(
-                    True
-                )  # Always keep ratio to show borders instead of distorting
+        self.picture.set_paintable(paintable)
+        self.content_stack.set_visible_child_name("video")
+        self.update_background_sampling()
 
-                self.video_box.append(self.picture)
-                self.content_stack.set_visible_child_name("video")
+        # Let the first frame settle the intrinsic dimensions before snapping the window.
+        GLib.timeout_add(500, self._auto_snap, paintable)
 
-                self.pipeline_manager.set_volume(self.volume)
-                self.pipeline_manager.play()
-
-                # Give GStreamer a tiny moment to negotiate caps and get the first frame
-                # so we can read the intrinsic dimensions, then automatically snap the AR.
-                GLib.timeout_add(500, self._auto_snap)
-        else:
-            self.show_error("Failed to build pipeline.")
-
-    def _auto_snap(self):
-        # Only snap if we actually successfully connected and started playing
-        if self.picture and self.picture.get_paintable():
+    def _auto_snap(self, paintable):
+        if self.picture.get_paintable() == paintable:
             self.on_snap_clicked(None)
         return False
 
-    def on_pipeline_error(self, err_msg):
-        GLib.idle_add(self.show_error, err_msg)
+    def clear_video(self) -> None:
+        self.picture.set_paintable(None)
+        self.video_background.clear_frame()
 
     def show_error(self, msg):
+        self.clear_video()
         self.status_page.set_description(msg)
         self.content_stack.set_visible_child_name("status")
 
     def on_close_request(self, *args):
+        self.clear_video()
         self.pipeline_manager.stop()
         return False
