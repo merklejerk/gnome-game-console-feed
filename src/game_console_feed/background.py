@@ -3,13 +3,13 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 
-import cairo
 import gi
 
 gi.require_version("Gdk", "4.0")
+gi.require_version("Graphene", "1.0")
+gi.require_version("Gsk", "4.0")
 gi.require_version("Gtk", "4.0")
-gi.require_foreign("cairo")
-from gi.repository import Gdk, Gtk  # noqa: E402
+from gi.repository import Gdk, GLib, Graphene, Gsk, Gtk  # noqa: E402
 
 from game_console_feed.pipeline import BACKGROUND_SAMPLE_SIZE  # noqa: E402
 
@@ -19,6 +19,7 @@ MAX_GLOW_PERCENT = 100
 DEFAULT_GLOW_BRIGHTNESS = 60
 DEFAULT_GLOW_SPREAD = 50
 GLOW_DEPTH_SAMPLES = 12  # Rows of progressively mixed color between the picture and window edge.
+MIN_BAR_DEPTH = 0.5  # Ignore bars smaller than half a logical pixel.
 
 
 class BackgroundMode(StrEnum):
@@ -81,20 +82,18 @@ def _saved_percentage(value: object, default: int) -> int:
     return default
 
 
-class VideoBackground(Gtk.DrawingArea):
+class VideoBackground(Gtk.Widget):
     """Draw the fill under the video picture using the same aspect ratio as playback."""
 
     def __init__(self, settings: BackgroundSettings, video_aspect_ratio: Callable[[], float]):
         super().__init__(can_target=False)
         self._video_aspect_ratio = video_aspect_ratio
         self._frame: tuple[float, ...] = ()  # Smoothed RGB channels from the current stream.
-        self.set_draw_func(self._draw)
         self.apply_settings(settings)
 
     def apply_settings(self, settings: BackgroundSettings) -> None:
         self._settings = settings
-        color = settings.rgba()
-        self._solid_rgb = (color.red, color.green, color.blue)
+        self._solid_color = settings.rgba()  # A GTK color node for solid fill.
         if settings.mode is BackgroundMode.GLOW:
             self.queue_draw()
         else:
@@ -108,48 +107,54 @@ class VideoBackground(Gtk.DrawingArea):
             )
         else:
             self._frame = tuple(map(float, frame))
-        self.queue_draw()
+        if max(self._bar_depths(self.get_width(), self.get_height())) >= MIN_BAR_DEPTH:
+            self.queue_draw()
 
     def clear_frame(self) -> None:
         self._frame = ()
         self.queue_draw()
 
-    def _draw(self, _area, cr: cairo.Context, width: int, height: int, *_data) -> None:
+    def do_snapshot(self, snapshot: Gtk.Snapshot) -> None:
         if self._settings.mode is BackgroundMode.THEME:
             return
+        width, height = self.get_width(), self.get_height()
+        bounds = Graphene.Rect().init(0, 0, width, height)
         if self._settings.mode is BackgroundMode.SOLID:
-            cr.set_source_rgb(*self._solid_rgb)
-            cr.paint()
+            snapshot.append_color(self._solid_color, bounds)
             return
 
-        cr.set_source_rgb(0, 0, 0)
-        cr.paint()
+        # The constant black base stays independent from the changing bar textures.
+        black = Gdk.RGBA()
+        black.parse(DEFAULT_FILL)
+        snapshot.append_color(black, bounds)
         if self._frame:
-            self._draw_glow(cr, width, height)
+            self._snapshot_glow(snapshot, width, height)
 
-    def _draw_glow(self, cr: cairo.Context, width: int, height: int) -> None:
+    def _bar_depths(self, width: int, height: int) -> tuple[float, float]:
         aspect = self._video_aspect_ratio()
+        return (width - height * aspect) / 2, (height - width / aspect) / 2
+
+    def _snapshot_glow(self, snapshot: Gtk.Snapshot, width: int, height: int) -> None:
         sample_width = BACKGROUND_SAMPLE_SIZE
         last = sample_width - 1
-        horizontal_depth = (width - height * aspect) / 2
-        vertical_depth = (height - width / aspect) / 2
+        horizontal_depth, vertical_depth = self._bar_depths(width, height)
 
-        if horizontal_depth > 0:
+        if horizontal_depth >= MIN_BAR_DEPTH:
             left, right = horizontal_depth, width - horizontal_depth
-            self._draw_bar(cr, (left, 0), (left, height), (-left, 0), 0, 1, sample_width)
-            self._draw_bar(cr, (right, 0), (right, height), (left, 0), last, -1, sample_width)
-        elif vertical_depth > 0:
+            self._append_bar(snapshot, (left, 0), (0, height), (-left, 0), 0, 1, sample_width)
+            self._append_bar(snapshot, (right, 0), (0, height), (left, 0), last, -1, sample_width)
+        elif vertical_depth >= MIN_BAR_DEPTH:
             top, bottom = vertical_depth, height - vertical_depth
-            self._draw_bar(cr, (0, top), (width, top), (0, -top), 0, sample_width, 1)
-            self._draw_bar(
-                cr, (0, bottom), (width, bottom), (0, top), last * sample_width, -sample_width, 1
+            self._append_bar(snapshot, (0, top), (width, 0), (0, -top), 0, sample_width, 1)
+            self._append_bar(
+                snapshot, (0, bottom), (width, 0), (0, top), last * sample_width, -sample_width, 1
             )
 
-    def _draw_bar(
+    def _append_bar(
         self,
-        cr: cairo.Context,
+        snapshot: Gtk.Snapshot,
         start: tuple[float, float],
-        end: tuple[float, float],
+        along: tuple[float, float],
         outward: tuple[float, float],
         first_pixel: int,
         inset: int,
@@ -166,35 +171,26 @@ class VideoBackground(Gtk.DrawingArea):
                 )
             )
 
-        strip = _diffused_strip(edge_colors, self._settings.glow)
-        width, depth = strip.get_width(), strip.get_height()
-        cr.save()
+        width, depth = BACKGROUND_SAMPLE_SIZE, GLOW_DEPTH_SAMPLES
+        pixels = _diffused_strip(edge_colors, self._settings.glow)
+        texture = Gdk.MemoryTexture.new(
+            width, depth, Gdk.MemoryFormat.R8G8B8, GLib.Bytes.new(pixels), width * 3
+        )
+        snapshot.save()
         # Map the strip's width along the video edge and its depth outward into the bar.
-        cr.transform(
-            cairo.Matrix(
-                (end[0] - start[0]) / width,
-                (end[1] - start[1]) / width,
-                outward[0] / depth,
-                outward[1] / depth,
-                *start,
+        snapshot.transform_matrix(
+            Graphene.Matrix().init_from_2d(
+                along[0] / width, along[1] / width, outward[0] / depth, outward[1] / depth, *start
             )
         )
-        cr.set_source_surface(strip)
-        pattern = cr.get_source()
-        pattern.set_filter(cairo.Filter.BILINEAR)
-        pattern.set_extend(cairo.Extend.PAD)
-        cr.rectangle(0, 0, width, depth)
-        cr.fill()
-        cr.restore()
+        snapshot.append_scaled_texture(
+            texture, Gsk.ScalingFilter.LINEAR, Graphene.Rect().init(0, 0, width, depth)
+        )
+        snapshot.restore()
 
 
-def _diffused_strip(
-    edge_colors: Sequence[tuple[float, ...]], settings: GlowSettings
-) -> cairo.ImageSurface:
-    width = len(edge_colors)
-    surface = cairo.ImageSurface(cairo.FORMAT_RGB24, width, GLOW_DEPTH_SAMPLES)
-    pixels = surface.get_data().cast("I")
-    stride = surface.get_stride() // pixels.itemsize
+def _diffused_strip(edge_colors: Sequence[tuple[float, ...]], settings: GlowSettings) -> bytes:
+    pixels = bytearray()
     brightness = settings.brightness / MAX_GLOW_PERCENT
     # Spread ranges from zero to two blur passes per row, with partial passes in between.
     spread = 2 * settings.spread / MAX_GLOW_PERCENT
@@ -209,12 +205,10 @@ def _diffused_strip(
 
         distance = row / (GLOW_DEPTH_SAMPLES - 1)
         light = brightness * (1 - distance**2 * (3 - 2 * distance))
-        for column, rgb in enumerate(edge_colors):
-            red, green, blue = (round(channel * light) for channel in rgb)
-            pixels[row * stride + column] = (red << 16) | (green << 8) | blue
+        for rgb in edge_colors:
+            pixels.extend(round(channel * light) for channel in rgb)
 
-    surface.mark_dirty()
-    return surface
+    return bytes(pixels)
 
 
 def _blur_edge(colors: Sequence[tuple[float, ...]], amount: float) -> list[tuple[float, ...]]:

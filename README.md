@@ -44,10 +44,10 @@ Flatpak is the recommended way to run Game Console Feed. Pre-built bundles are a
 
 If you prefer to run from source, this project requires [uv](https://docs.astral.sh/uv/) for Python package management.
 
-**System Requirements**:
-You must have the following libraries installed on your host system:
-- `libadwaita-1`
-- `gstreamer1.0-plugins-good`
+**System requirements**
+
+- GTK **4.10** or newer and Libadwaita **1.5** or newer, with their GObject Introspection typelibs.
+- GStreamer **1.24** or newer, with the GStreamer and GstVideo typelibs. Install the GStreamer base, good, ALSA, and GTK 4 paintable sink plugins (`gtk4paintablesink`).
 - `v4l-utils`
 - `alsa-utils`
 

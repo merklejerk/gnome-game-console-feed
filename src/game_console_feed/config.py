@@ -1,5 +1,6 @@
 import json
 import logging
+from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 
 from gi.repository import GLib
@@ -9,6 +10,42 @@ logger = logging.getLogger(__name__)
 # Use GLib to get the proper config directory (XDG compliant and Flatpak friendly)
 CONFIG_DIR = Path(GLib.get_user_config_dir()) / "game-console-feed"
 CONFIG_FILE = CONFIG_DIR / "settings.json"
+SAVE_DELAY_MS = 200  # Let a burst of UI changes settle before writing.
+
+
+class SettingsWriter:
+    """Coalesce GTK updates and serialize atomic writes on one worker."""
+
+    def __init__(self) -> None:
+        self._worker = ThreadPoolExecutor(max_workers=1)
+        self._pending: dict | None = None  # Latest settings snapshot waiting to be written.
+        self._timer: int | None = None  # GTK main-context timeout for the pending snapshot.
+        self._write: Future[None] | None = None  # Most recent write submitted to the worker.
+
+    def queue(self, config: dict) -> None:
+        self._pending = config.copy()
+        if self._timer is not None:
+            GLib.source_remove(self._timer)
+        self._timer = GLib.timeout_add(SAVE_DELAY_MS, self._write_when_ready)
+
+    def _write_when_ready(self) -> bool:
+        if self._write is not None and not self._write.done():
+            return GLib.SOURCE_CONTINUE
+        self._timer = None
+        self._submit_pending()
+        return GLib.SOURCE_REMOVE
+
+    def _submit_pending(self) -> None:
+        if self._pending is not None:
+            self._write = self._worker.submit(save_config, self._pending)
+            self._pending = None
+
+    def close(self) -> None:
+        if self._timer is not None:
+            GLib.source_remove(self._timer)
+            self._timer = None
+        self._submit_pending()
+        self._worker.shutdown(wait=True)
 
 
 def load_config() -> dict:

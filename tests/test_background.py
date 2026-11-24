@@ -35,9 +35,8 @@ def test_glow_sliders_control_light_and_color_mixing_independently():
     colors[center] = (255.0, 0.0, 0.0)
 
     def pixel(settings: GlowSettings, row: int, column: int) -> int:
-        surface = _diffused_strip(colors, settings)
-        pixels = surface.get_data().cast("I")
-        return pixels[row * (surface.get_stride() // pixels.itemsize) + column]
+        pixels = _diffused_strip(colors, settings)
+        return pixels[3 * (row * BACKGROUND_SAMPLE_SIZE + column)]
 
     middle = GLOW_DEPTH_SAMPLES // 2
     off_center = center + BACKGROUND_SAMPLE_SIZE // 4

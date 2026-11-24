@@ -1,8 +1,11 @@
+from threading import Event, get_ident
+from time import monotonic, sleep
 from unittest import mock
 
 import pytest
+from gi.repository import GLib
 
-from game_console_feed.config import load_config, save_config
+from game_console_feed.config import SettingsWriter, load_config, save_config
 
 
 @pytest.fixture
@@ -39,3 +42,42 @@ def test_save_config_updates_a_linked_settings_file(mock_config_dir):
 
     assert settings.is_symlink()
     assert load_config() == {"audio_muted": False}
+
+
+def test_settings_writer_flushes_only_the_latest_pending_settings_on_close(mock_config_dir):
+    writer = SettingsWriter()
+    try:
+        writer.queue({"audio_muted": True})
+        writer.queue({"audio_muted": False, "volume": 1.0})
+        assert load_config() == {}
+    finally:
+        writer.close()
+
+    assert load_config() == {"audio_muted": False, "volume": 1.0}
+
+
+def test_settings_writer_writes_off_the_main_thread(monkeypatch):
+    main_thread = get_ident()
+    written = Event()
+    writes: list[tuple[int, dict]] = []
+
+    def record_write(config: dict) -> None:
+        writes.append((get_ident(), config))
+        written.set()
+
+    monkeypatch.setattr("game_console_feed.config.save_config", record_write)
+    writer = SettingsWriter()
+    try:
+        writer.queue({"volume": 1.0})
+        writer.queue({"volume": 1.5})
+        context = GLib.MainContext.default()
+        deadline = monotonic() + 2
+        while not written.is_set():
+            assert monotonic() < deadline, "Timed out waiting for the settings writer"
+            context.iteration(False)
+            sleep(0.005)
+        [(worker_thread, config)] = writes
+        assert worker_thread != main_thread
+        assert config == {"volume": 1.5}
+    finally:
+        writer.close()

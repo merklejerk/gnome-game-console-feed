@@ -13,7 +13,7 @@ from game_console_feed.background import (  # noqa: E402
     GlowSettings,
     VideoBackground,
 )
-from game_console_feed.config import load_config, save_config  # noqa: E402
+from game_console_feed.config import SettingsWriter, load_config  # noqa: E402
 from game_console_feed.discovery import get_matching_alsa_device, get_video_devices  # noqa: E402
 from game_console_feed.pipeline import PipelineManager  # noqa: E402
 
@@ -43,6 +43,7 @@ class ConsoleWindow(Adw.ApplicationWindow):
         self.set_default_size(1280, 720)
 
         self.config = load_config()
+        self.settings_writer = SettingsWriter()  # Owns deferred writes until this window closes.
         self.pipeline_manager = PipelineManager(on_error=self.show_error)
         self.audio_muted = self.config.get("audio_muted", False)
         self.background_settings = BackgroundSettings.from_config(self.config)
@@ -200,7 +201,7 @@ class ConsoleWindow(Adw.ApplicationWindow):
         if mode_changed:
             self.update_background_sampling()
         settings.update_config(self.config)
-        save_config(self.config)
+        self.settings_writer.queue(self.config)
 
     def update_background_sampling(self) -> None:
         if (
@@ -304,21 +305,21 @@ class ConsoleWindow(Adw.ApplicationWindow):
             return
         dev = self.devices[idx]
         self.config["last_device_id"] = dev["id"]
-        save_config(self.config)
+        self.settings_writer.queue(self.config)
         self.start_stream(dev)
 
     def on_mute_toggled(self, btn):
         self.audio_muted = btn.get_active()
         btn.set_label("Unmute" if self.audio_muted else "Mute")
         self.config["audio_muted"] = self.audio_muted
-        save_config(self.config)
+        self.settings_writer.queue(self.config)
         self.pipeline_manager.set_mute(self.audio_muted)
 
     def on_volume_changed(self, scale):
         volume = scale.get_value()
         self.pipeline_manager.set_volume(volume)
         self.config["volume"] = volume
-        save_config(self.config)
+        self.settings_writer.queue(self.config)
 
     def video_aspect_ratio(self) -> float:
         paintable = self.picture.get_paintable()
@@ -412,4 +413,5 @@ class ConsoleWindow(Adw.ApplicationWindow):
     def on_close_request(self, *args):
         self.clear_video()
         self.pipeline_manager.stop()
+        self.settings_writer.close()
         return False
