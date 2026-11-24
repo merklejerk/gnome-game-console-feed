@@ -1,6 +1,6 @@
 [project]
 name = "game-console-feed"
-version = "0.1.0"
+version = "0.2.0"
 description = "Native GNOME Game Console Feed Utility"
 readme = "README.md"
 requires-python = ">=3.12"
